@@ -4,7 +4,7 @@
 
 * CryptnetUrlCache is a directory which contains cached certificate validation data - OCSP and CRLs for WinInet and WinHTTP library calls (most Windows native programs do it)
 * We can use the certificate serial number in OCSP requests and responses to retrieve the actual certificates from [Certificate Transparency](https://certificate.transparency.dev/howctworks/) log database such as [crt.sh](https://crt.sh). Subject Name and Subject Alternative Name will tell us what are the possible hostname values
-* This is useful when you want to examine whatsystems  internet systems may have
+* This is useful when you want to examine where programs may have connected to
 
 ## What is CryptnetUrlCache?
 Windows operating systems since at least XP/2003 provide a cacheing facility in the [wininet](https://learn.microsoft.com/en-us/windows/win32/wininet/about-wininet) library/API. This API is used by vast majority of Windows native applications such as Internet Explorer but also RATs such as CobaltStrike to make calls to HTTP, HTTPS, FTP (and Gopher on XP/2003) protocols.
