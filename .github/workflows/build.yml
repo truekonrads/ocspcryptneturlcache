@@ -1,0 +1,82 @@
+name: Windows Rust builds
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - runner: windows-2022
+            target: x86_64-pc-windows-msvc
+          - runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+          rustup default stable
+          rustup target add ${{ matrix.target }}
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --locked --target ${{ matrix.target }} -- -D warnings
+      - run: cargo test --locked --target ${{ matrix.target }}
+      - run: cargo build --release --locked --target ${{ matrix.target }}
+      - name: Package executable and checksum
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory package
+          New-Item -ItemType Directory dist
+          Copy-Item target/${{ matrix.target }}/release/cryptnet-dump.exe package/
+          Copy-Item README.md,LICENSE package/
+          Copy-Item docs package/ -Recurse
+          $hash = (Get-FileHash package/cryptnet-dump.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  cryptnet-dump.exe" | Set-Content package/SHA256SUMS -Encoding ascii
+          $name = 'cryptnet-dump-${{ matrix.target }}.zip'
+          Compress-Archive -Path package/* -DestinationPath "dist/$name"
+          $zipHash = (Get-FileHash "dist/$name" -Algorithm SHA256).Hash.ToLower()
+          "$zipHash  $name" | Set-Content "dist/$name.sha256" -Encoding ascii
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cryptnet-dump-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: cryptnet-dump-*
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: cryptnet-dump ${{ github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/*.zip
+            dist/*.sha256
+          body: |
+            Standalone, read-only Windows certificate-cache investigation tool. No Python or runtime installation required.
+
+            Download and extract the ZIP for **x64** (`x86_64-pc-windows-msvc`, most Windows PCs) or **ARM64** (`aarch64-pc-windows-msvc`, Windows on ARM). Targets Windows 10/11 and Server 2016+; no 32-bit builds.
+
+            Start with `.\cryptnet-dump.exe`. Add `--ocsp-only --resolve` for candidate names, or `--json --output evidence.jsonl` for full evidence. Resolution sends serials to ctlogs.dev, with crt.sh as fallback. Names are unverified leads, not proof of connections.
+
+            Each ZIP contains the executable, documentation, and an executable SHA-256 checksum. Adjacent `.sha256` files verify the ZIP downloads. More cowbell included.
