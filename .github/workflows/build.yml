@@ -1,4 +1,4 @@
-name: Windows Rust builds
+name: Rust builds
 
 on:
   push:
@@ -117,10 +117,75 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  linux:
+    name: Build, validate and package Linux (x86_64-unknown-linux-gnu)
+    # Keep the GNU runtime baseline at glibc 2.35 (Ubuntu 22.04).
+    runs-on: ubuntu-22.04
+    env:
+      TARGET: x86_64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt --component clippy --no-self-update
+          rustup default stable
+          rustup target add "$TARGET"
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --locked --target "$TARGET" -- -D warnings
+      - run: cargo test --locked --target "$TARGET"
+      - run: cargo build --release --locked --target "$TARGET"
+      - name: Package executable and checksums
+        run: |
+          mkdir package dist
+          cp "target/$TARGET/release/cryptnet-dump" README.md LICENSE package/
+          cp -r docs package/
+          (cd package && sha256sum cryptnet-dump > SHA256SUMS)
+          name="cryptnet-dump-$TARGET.tar.gz"
+          tar -czf "dist/$name" -C package .
+          (cd dist && sha256sum "$name" > "$name.sha256")
+      - name: Verify archive and smoke-test the packaged executable
+        run: |
+          (cd dist && sha256sum --check *.sha256)
+          mkdir "$RUNNER_TEMP/linux-package"
+          tar -xzf "dist/cryptnet-dump-$TARGET.tar.gz" -C "$RUNNER_TEMP/linux-package"
+          cd "$RUNNER_TEMP/linux-package"
+          sha256sum --check SHA256SUMS
+          ./cryptnet-dump --version
+          python3 - <<'PY'
+          import json
+          import pathlib
+          import struct
+          import subprocess
+          import tempfile
+
+          with tempfile.TemporaryDirectory() as cache:
+              metadata = pathlib.Path(cache) / 'MetaData'
+              metadata.mkdir()
+              url = 'ldap://example.test/certificate'
+              encoded = (url + '\0').encode('utf-16-le')
+              header = bytearray(116)
+              struct.pack_into('<I', header, 12, len(encoded))
+              (metadata / 'synthetic').write_bytes(header + encoded)
+              output = subprocess.check_output(['./cryptnet-dump', '--path', cache, '--json'], text=True)
+              rows = [json.loads(line) for line in output.splitlines()]
+              assert len(rows) == 1, rows
+              assert rows[0]['url'] == url, rows
+              assert rows[0]['last_download_time'] == '1601-01-01T00:00:00Z', rows
+              evidence = pathlib.Path(cache) / 'evidence.jsonl'
+              evidence.write_text(output)
+              replay = subprocess.check_output(['./cryptnet-dump', '--input', str(evidence), '--json'], text=True)
+              assert [json.loads(line) for line in replay.splitlines()] == rows
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cryptnet-dump-x86_64-unknown-linux-gnu
+          path: dist/*
+          if-no-files-found: error
+
   release:
     name: Publish release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    needs: [build, linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -137,15 +202,18 @@ jobs:
           fail_on_unmatched_files: true
           files: |
             dist/*.zip
+            dist/*.tar.gz
             dist/*.sha256
           body: |
-            Standalone, read-only Windows certificate-cache investigation tool. No Python or runtime installation required.
+            Standalone, read-only Windows certificate-cache investigation tool. No Python required.
 
             Download and extract the ZIP for **x64** (`x86_64-pc-windows-msvc`, most Windows PCs) or **ARM64** (`aarch64-pc-windows-msvc`, Windows on ARM). Targets Windows 10/11 and Server 2016+; no 32-bit builds.
 
+            For **Linux x86_64**, extract `cryptnet-dump-x86_64-unknown-linux-gnu.tar.gz`. Requires glibc 2.35+ and libgcc_s.so.1 (Ubuntu 22.04 or compatible); not a static/musl build for Alpine. No OpenSSL installation required. Use `./cryptnet-dump --path /evidence/CryptnetUrlCache` for collected caches or `./cryptnet-dump --input evidence.jsonl --resolve` for exported evidence. Live profile discovery and `--all-users` require Windows.
+
             Start with `.\cryptnet-dump.exe`. Add `--ocsp-only --resolve` for candidate names, or `--json --output evidence.jsonl` for full evidence. Resolution sends serials to ctlogs.dev, with crt.sh as fallback. Names are unverified leads, not proof of connections.
 
-            Each ZIP contains the executable, documentation, and an executable SHA-256 checksum. Adjacent `.sha256` files verify the ZIP downloads. More cowbell included.
+            Each archive contains the executable, documentation, and an executable SHA-256 checksum in SHA256SUMS. Adjacent `.sha256` files verify the archive downloads. More cowbell included.
 
   publish-crate:
     name: Publish crate to crates.io

@@ -130,13 +130,32 @@ cache is read or created. Save `resolved.jsonl` and reopen it with
 
 ## Get the executable
 
-Target: **64-bit Windows 10/11 and Server 2016+**; live-tested on Windows 11 x64.
+Windows target: **64-bit Windows 10/11 and Server 2016+**; live-tested on Windows 11 x64.
 No Python, OpenSSL DLLs, or VC++ runtime installation is needed on the target.
 
 **[Download the latest release](https://github.com/truekonrads/ocspcryptneturlcache/releases/latest)**
-and extract the ZIP for **x64** (most PCs) or **ARM64** (Windows on ARM).
-Each ZIP includes the executable, documentation, and a SHA-256 checksum;
-the release also includes checksums for the ZIPs themselves.
+and extract the Windows ZIP for **x64** (most PCs) or **ARM64** (Windows on ARM),
+or the **Linux x86_64** archive `cryptnet-dump-x86_64-unknown-linux-gnu.tar.gz`.
+Each archive includes the executable, documentation, and `SHA256SUMS`;
+the release also includes adjacent `.sha256` checksums for the archives themselves.
+Linux assets are published starting with the next release after v1.0.0;
+the existing v1.0.0 release is Windows-only.
+
+Linux requires **glibc 2.35+** and **libgcc_s.so.1** (Ubuntu 22.04 or compatible).
+It is a dynamically linked GNU build, not a static/musl binary for Alpine.
+No Python or OpenSSL installation is needed. Use Linux for collected caches or
+exported JSON Lines; live Windows profile discovery and `--all-users` require Windows.
+
+```bash
+# Run in the directory containing the downloaded archive and its .sha256 file
+sha256sum --check cryptnet-dump-x86_64-unknown-linux-gnu.tar.gz.sha256
+mkdir cryptnet-dump-linux
+tar -xzf cryptnet-dump-x86_64-unknown-linux-gnu.tar.gz -C cryptnet-dump-linux
+cd cryptnet-dump-linux
+sha256sum --check SHA256SUMS
+./cryptnet-dump --path /evidence/CryptnetUrlCache --json
+./cryptnet-dump --input /evidence/evidence.jsonl --resolve
+```
 
 Build with stable Rust (MSVC) and Visual Studio C++ Build Tools:
 
@@ -147,7 +166,9 @@ cargo build --release --locked
 Copy `target\release\cryptnet-dump.exe` to the machine being examined. The
 [release workflow](https://github.com/truekonrads/ocspcryptneturlcache/blob/main/.github/workflows/build.yml)
 cross-compiles x64 and ARM64 on Linux, validates them on native Windows runners,
-and publishes ZIPs on `v*` tags; ARM64 execution remains untested locally.
+and builds Linux x86_64 natively on Ubuntu 22.04. It publishes Windows ZIPs and
+the Linux tar.gz on `v*` tags only after all three targets pass validation;
+ARM64 execution remains untested locally.
 See [Linux build instructions](docs/how-it-works.md#cross-compiling-windows-releases-on-linux)
 to produce the same executables without Visual Studio.
 

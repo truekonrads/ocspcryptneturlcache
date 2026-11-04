@@ -223,6 +223,34 @@ Tests use synthetic metadata based on the live Windows layout, public OCSP
 examples, and local HTTP servers for provider fallback. No developer browsing
 history is included.
 
+### Native Linux releases
+
+The Linux asset is `cryptnet-dump-x86_64-unknown-linux-gnu.tar.gz`, built
+natively on Ubuntu 22.04 with stable Rust. Runtime requirements are **x86_64,
+glibc 2.35+ and libgcc_s.so.1** (Ubuntu 22.04 or compatible); this is not a
+fully static or musl/Alpine build. TLS uses Rustls, so OpenSSL is not required.
+Use `--path /evidence/CryptnetUrlCache` for collected cache directories (preserve
+both `MetaData` and `Content`) or `--input evidence.jsonl` for exported evidence.
+Live profile discovery and `--all-users` are Windows-only.
+
+Build locally with a native C compiler/linker and stable Rust:
+
+```bash
+cargo clippy --all-targets --locked --target x86_64-unknown-linux-gnu -- -D warnings
+cargo test --locked --target x86_64-unknown-linux-gnu
+cargo build --release --locked --target x86_64-unknown-linux-gnu
+```
+
+The binary is at `target/x86_64-unknown-linux-gnu/release/cryptnet-dump`.
+Building on a newer distribution can raise its glibc requirement; use Ubuntu
+22.04 to match the release baseline. CI packages the executable with README,
+LICENSE, docs, and `SHA256SUMS`, plus an adjacent archive `.sha256` file.
+It verifies both checksums, extracts the archive, and runs that packaged binary
+against synthetic cache metadata and exported JSON Lines. The tar archive
+preserves executable permissions. See the [download instructions](../README.md#get-the-executable)
+for extraction and checksum verification. Linux assets start with the next
+release after v1.0.0; existing release assets are not changed.
+
 ### Cross-compiling Windows releases on Linux
 
 The reusable [build script](../scripts/build-windows.sh) produces MSVC executables
@@ -254,15 +282,16 @@ The [release workflow](https://github.com/truekonrads/ocspcryptneturlcache/blob/
 cross-builds both executables on Linux, caching cargo-xwin and the SDK/CRT.
 Native Windows x64 and ARM64 runners then run formatting, Clippy, and the test
 suite, and smoke-test the **exact cross-built executables** against synthetic
-cache metadata before packaging them. Pushing a `v*` tag publishes both ZIPs and
-SHA-256 checksums to GitHub Releases only after both Windows jobs pass. Branch
+cache metadata before packaging them. Pushing a `v*` tag publishes both Windows
+ZIPs, the Linux tar.gz, and SHA-256 checksums to GitHub Releases only after both
+Windows jobs and the native Linux job pass. Branch
 builds, pull requests, and manual runs produce downloadable workflow artifacts
 without publishing a release.
 
 ## Publishing the crate
 
 The same workflow publishes `cryptnet-dump` to **crates.io** after the Windows
-builds and GitHub release succeed. Branch builds and pull requests never publish.
+and Linux builds and GitHub release succeed. Branch builds and pull requests never publish.
 The publish step uses the repository Actions secret `CARGO_REGISTRY_TOKEN`; an
 Amp secret with that name is separate and is not forwarded to GitHub Actions.
 Use a crates.io token with permission to publish this crate, including permission
@@ -285,7 +314,7 @@ cargo publish --dry-run --locked
 ```
 
 Crate installation requires Rust and a native build toolchain; the downloadable
-Windows ZIPs remain the installation-free option for machines being examined.
+Windows ZIPs and Linux tar.gz do not require a Rust installation.
 
 ## Background research
 
