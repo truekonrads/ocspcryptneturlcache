@@ -8,6 +8,11 @@ Recover cached certificate-validation URLs and candidate hostnames to help triag
 malware callbacks and investigate past activity. One standalone Rust executable:
 **no Python, no installation, read-only, offline by default.**
 
+[Read the forensic field guide](https://truekonrads.github.io/ocspcryptneturlcache/)
+for the artefact, cache format, WinINet/WinHTTP behavior, and interpretation limits.
+The static site lives in `docs/`; publish it with GitHub Pages from `main` → `/docs`
+(no build step required).
+
 ## See it in action
 
 Read the current user's cache and look up certificate names:
