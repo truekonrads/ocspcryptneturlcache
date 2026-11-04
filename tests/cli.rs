@@ -183,13 +183,24 @@ fn reopens_collected_json_without_source_cache_and_preserves_evidence() {
         assert_eq!(cmd.output().unwrap().status.code(), Some(2));
     }
     // A bad record must not hide later valid evidence.
-    let mut damaged = b"{broken}\n".to_vec();
-    damaged.extend_from_slice(&collected.stdout);
-    fs::write(&input, damaged).unwrap();
+    for prefix in [b"{broken}\n".as_slice(), b"\"\xff\n"] {
+        let mut damaged = prefix.to_vec();
+        damaged.extend_from_slice(&collected.stdout);
+        fs::write(&input, damaged).unwrap();
+        let result = reopen().arg("--json").output().unwrap();
+        assert_eq!(result.status.code(), Some(1));
+        assert_eq!(result.stdout, collected.stdout);
+        assert!(String::from_utf8_lossy(&result.stderr).contains("JSON record 1"));
+    }
+
+    // Byte-based recovery must retain the per-record allocation bound.
+    let mut oversized = vec![b' '; 8 * 1024 * 1024 + 1];
+    oversized.extend_from_slice(&collected.stdout);
+    fs::write(&input, oversized).unwrap();
     let result = reopen().arg("--json").output().unwrap();
     assert_eq!(result.status.code(), Some(1));
-    assert_eq!(result.stdout, collected.stdout);
-    assert!(String::from_utf8_lossy(&result.stderr).contains("JSON record 1"));
+    assert!(result.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("exceeds 8 MiB limit"));
 
     // Saved enrichment can be viewed entirely offline.
     let mut row = String::from_utf8_lossy(&collected.stdout)
@@ -203,6 +214,35 @@ fn reopens_collected_json_without_source_cache_and_preserves_evidence() {
     let result = reopen().output().unwrap();
     assert!(result.status.success());
     assert!(String::from_utf8_lossy(&result.stdout).contains("saved.example"));
+}
+
+#[test]
+fn retains_evidence_when_ocsp_url_decoding_exhausts_its_work_budget() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path().join("MetaData");
+    fs::create_dir(&dir).unwrap();
+    let url = format!("http://example.test/{}", "/".repeat(16_384));
+    fs::write(dir.join("1-hostile"), metadata(&url)).unwrap();
+    fs::write(dir.join("2-valid"), metadata("ldap://example.test/later")).unwrap();
+    let result = command(&dir).output().unwrap();
+    assert!(result.status.success());
+    let rows: Vec<serde_json::Value> = String::from_utf8(result.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["url"], url);
+    assert_eq!(rows[0]["ocsp"], serde_json::json!([]));
+    assert!(rows[0]["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|warning| warning
+            .as_str()
+            .unwrap()
+            .contains("OCSP URL decoding work limit")));
+    assert_eq!(rows[1]["url"], "ldap://example.test/later");
 }
 
 #[test]

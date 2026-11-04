@@ -113,11 +113,16 @@ without `--resolve` to display saved enrichment without network requests.
 The default is the current profile's
 `%USERPROFILE%\AppData\LocalLow\Microsoft\CryptnetUrlCache`.
 
-`--all-users` also checks sibling user profiles, System32 and SysWOW64 system
-profiles, and the LocalService and NetworkService profiles under `%SystemRoot%`.
-Protected directories require elevation. Profiles outside the discovered
-locations can be supplied with `--path`, which accepts a cache root or its
-`MetaData` directory and can be repeated for multiple collected caches.
+`--all-users` reads registered profile paths from
+`HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList`, including
+relocated users, regardless of whether the tool runs interactively or as SYSTEM.
+Expandable `ProfileImagePath` values are expanded. The current profile, System32
+and SysWOW64 system profiles, and LocalService/NetworkService profiles under
+`%SystemRoot%` are also checked; duplicate cache directories are scanned once.
+Profile-list enumeration failures are errors, not a successful partial discovery.
+Protected directories require elevation. Unregistered or acquired profiles can
+be supplied with `--path`, which accepts a cache root or its `MetaData` directory
+and can be repeated for multiple collected caches.
 
 ## Output and collection behavior
 
@@ -176,9 +181,12 @@ particularly for private PKI and code-signing certificates. Finding no names or
 no OCSP entries is not evidence that no network activity occurred.
 
 Inputs are bounded to 1 MiB per metadata file, 32 MiB per content file, and 8 MiB
-per CT response. Unsupported/corrupt metadata is reported rather than silently
-discarded. Online requests have a 15-second timeout each; enrichment is sequential
-and may take time on large caches. ctlogs.dev works without a key, but limits
+per CT response. OCSP URL parsing also limits the cumulative candidate bytes
+decoded to 4 MiB per URL; exhausting that budget retains the URL/metadata with a
+warning and still examines cached response content. Unsupported/corrupt metadata
+is reported rather than silently discarded. Online requests have a 15-second
+timeout each; enrichment is sequential and may take time on large caches.
+ctlogs.dev works without a key, but limits
 anonymous use to 100 requests/hour and ten pages per query. Each serial search
 page and certificate detail costs a request; rate limits or incomplete pagination
 trigger crt.sh fallback. For better throughput, optionally configure the

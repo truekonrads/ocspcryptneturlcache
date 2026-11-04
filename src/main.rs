@@ -1,6 +1,8 @@
 mod cache;
 mod ocsp;
 mod output;
+#[cfg(windows)]
+mod profiles;
 mod resolve;
 
 use anyhow::{bail, Context, Result};
@@ -84,31 +86,19 @@ fn roots(args: &Args) -> Result<Vec<PathBuf>> {
     if !args.path.is_empty() {
         return Ok(args.path.clone());
     }
+    if args.all_users {
+        #[cfg(windows)]
+        {
+            return profiles::all_users();
+        }
+        #[cfg(not(windows))]
+        bail!("--all-users requires Windows; use --path for collected profiles");
+    }
     let profile =
         PathBuf::from(env::var_os("USERPROFILE").context("USERPROFILE is unset; use --path")?);
-    let suffix = Path::new("AppData/LocalLow/Microsoft/CryptnetUrlCache");
-    let mut paths = BTreeSet::from([profile.join(suffix)]);
-    if args.all_users {
-        // Use this user's actual profile parent rather than assuming C:\Users.
-        if let Some(parent) = profile.parent() {
-            for item in fs::read_dir(parent).context("listing user profiles")? {
-                let item = item?;
-                if item.file_type()?.is_dir() {
-                    paths.insert(item.path().join(suffix));
-                }
-            }
-        }
-        let windows = PathBuf::from(env::var_os("SystemRoot").context("SystemRoot is unset")?);
-        for service in [
-            "System32/config/systemprofile",
-            "SysWOW64/config/systemprofile",
-            "ServiceProfiles/LocalService",
-            "ServiceProfiles/NetworkService",
-        ] {
-            paths.insert(windows.join(service).join(suffix));
-        }
-    }
-    Ok(paths.into_iter().collect())
+    Ok(vec![
+        profile.join("AppData/LocalLow/Microsoft/CryptnetUrlCache")
+    ])
 }
 
 // Cache inputs are untrusted forensic evidence. Bound reads even if the source
@@ -124,14 +114,20 @@ fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>> {
 
 fn collect(path: &Path) -> Result<Entry> {
     let metadata = cache::parse(&read_bounded(path, 1024 * 1024)?)?;
-    let mut ids = ocsp::from_url(&metadata.url);
+    let mut warnings = vec![];
+    let mut ids = match ocsp::from_url(&metadata.url) {
+        Ok(ids) => ids,
+        Err(error) => {
+            warnings.push(error.to_string());
+            vec![]
+        }
+    };
     let content = path
         .parent()
         .and_then(Path::parent)
         .context("metadata has no cache parent")?
         .join("Content")
         .join(path.file_name().context("metadata has no file name")?);
-    let mut warnings = vec![];
     match read_bounded(&content, 32 * 1024 * 1024) {
         Ok(bytes) => {
             for id in ocsp::from_response(&bytes) {
@@ -202,11 +198,11 @@ fn run(args: Args) -> Result<()> {
         let progress = ProgressBar::hidden();
         loop {
             // Bound each untrusted JSON record, not the entire evidence file.
-            let mut line = String::new();
+            let mut line = Vec::new();
             let size = reader
                 .by_ref()
                 .take(8 * 1024 * 1024 + 1)
-                .read_line(&mut line)?;
+                .read_until(b'\n', &mut line)?;
             if size == 0 {
                 break;
             }
@@ -214,7 +210,7 @@ fn run(args: Args) -> Result<()> {
             if size > 8 * 1024 * 1024 {
                 bail!("JSON record {scanned} exceeds 8 MiB limit");
             }
-            let entry = match serde_json::from_str::<Entry>(&line) {
+            let entry = match serde_json::from_slice::<Entry>(&line) {
                 Ok(entry) => entry,
                 Err(error) => {
                     eprintln!("warning: JSON record {scanned}: {error}");

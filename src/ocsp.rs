@@ -1,3 +1,4 @@
+use anyhow::{bail, Result};
 use base64::{
     engine::general_purpose::{STANDARD, STANDARD_NO_PAD},
     Engine,
@@ -30,34 +31,42 @@ impl From<CertId> for CertificateId {
 
 /// Try each path suffix: standard base64 may contain literal '/', including
 /// when a responder lives under a path prefix. Never assume the last segment.
-pub fn from_url(url: &str) -> Vec<CertificateId> {
+pub fn from_url(url: &str) -> Result<Vec<CertificateId>> {
     let Some((_, after_scheme)) = url.split_once("://") else {
-        return vec![];
+        return Ok(vec![]);
     };
     let Some(slash) = after_scheme.find('/') else {
-        return vec![];
+        return Ok(vec![]);
     };
     let path = after_scheme[slash..]
         .split(['?', '#'])
         .next()
         .unwrap_or_default();
+    // Charge all suffix bytes before decoding, bounding both allocation and CPU
+    // even when many overlapping suffixes contain plausible base64/DER prefixes.
+    let mut remaining = 4 * 1024 * 1024;
     for (offset, _) in path.match_indices('/') {
-        let decoded = percent_decode_str(&path[offset + 1..]).collect::<Vec<_>>();
+        let candidate = &path[offset + 1..];
+        if candidate.len() > remaining {
+            bail!("OCSP URL decoding work limit exceeded; URL evidence retained");
+        }
+        remaining -= candidate.len();
+        let decoded = percent_decode_str(candidate).collect::<Vec<_>>();
         let bytes = STANDARD
             .decode(&decoded)
             .or_else(|_| STANDARD_NO_PAD.decode(&decoded));
         if let Ok(bytes) = bytes {
             if let Ok(request) = OcspRequest::from_der(&bytes) {
-                return request
+                return Ok(request
                     .tbs_request
                     .request_list
                     .into_iter()
                     .map(|r| r.req_cert.into())
-                    .collect();
+                    .collect());
             }
         }
     }
-    vec![]
+    Ok(vec![])
 }
 
 /// POST OCSP requests do not encode a CertID in their URL; cached response
@@ -97,7 +106,7 @@ mod tests {
                 .unwrap()
                 .to_string(),
         ] {
-            let ids = from_url(&format!("http://example.test/ocsp/{path}?ignored=1"));
+            let ids = from_url(&format!("http://example.test/ocsp/{path}?ignored=1")).unwrap();
             assert_eq!(ids.len(), 1);
             assert_eq!(ids[0].serial, "349CAC261DE48DA54F81C5C20C750D356B0");
             assert_eq!(
@@ -175,7 +184,7 @@ mod tests {
             "not a URL",
             "https://example.test/",
         ] {
-            assert!(from_url(url).is_empty());
+            assert!(from_url(url).unwrap().is_empty());
         }
         assert!(from_response(b"not DER").is_empty());
     }
