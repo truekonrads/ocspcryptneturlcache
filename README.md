@@ -92,9 +92,7 @@ candidate names with cached or newly queried results and retains original collec
 
 Obtain a key from [ctlogs.dev](https://account.ctlogs.dev/) and make it available
 as the **`CTLOG_API_KEY` environment variable** before running `--resolve`.
-In Amp, configure it as a secret named `CTLOG_API_KEY`; the tool reads it from
-the environment, not from Amp's secret store directly. Never put a key in evidence,
-screenshots, or source control. It is sent only to ctlogs.dev, not crt.sh.
+
 
 A key avoids the anonymous shared-capacity pool and can improve throughput;
 limits depend on the plan, so it does not guarantee faster responses. Anonymous
