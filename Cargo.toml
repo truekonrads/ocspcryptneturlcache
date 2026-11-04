@@ -1,0 +1,31 @@
+[package]
+name = "cryptnet-dump"
+version = "1.0.0"
+edition = "2021"
+description = "Standalone CryptnetUrlCache dumper and OCSP certificate-name investigator"
+license = "BSD-3-Clause"
+repository = "https://github.com/truekonrads/ocspcryptneturlcache"
+readme = "README.md"
+include = ["/src/**", "/tests/**", "/.cargo/config.toml", "/docs/**", "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE"]
+
+[dependencies]
+anyhow = "1"
+base64 = "0.22"
+clap = { version = "4", features = ["derive"] }
+comfy-table = "7"
+console = "0.16"
+der = { version = "0.7", features = ["std"] }
+hex = "0.4"
+indicatif = "0.18"
+percent-encoding = "2"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+time = { version = "0.3", features = ["formatting"] }
+x509-ocsp = "0.2.1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

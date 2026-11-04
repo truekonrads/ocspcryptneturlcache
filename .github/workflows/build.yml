@@ -1,0 +1,172 @@
+name: Windows Rust builds
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cross-build:
+    name: Cross-build Windows (${{ matrix.target }})
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        target: [x86_64-pc-windows-msvc, aarch64-pc-windows-msvc]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust and Linux build tools
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+          sudo apt-get update
+          sudo apt-get install -y clang llvm lld cmake ninja-build
+      - name: Cache cargo-xwin and Microsoft SDK/CRT
+        id: xwin-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/cargo-xwin
+            ~/.cache/cargo-xwin
+          key: xwin-${{ runner.os }}-${{ runner.arch }}-0.23.1-sdk-10.0.26100-crt-14.44.17.14
+      - name: Install cargo-xwin
+        if: steps.xwin-cache.outputs.cache-hit != 'true'
+        run: cargo install --locked cargo-xwin --version 0.23.1
+      - name: Cross-compile Windows executable
+        run: bash scripts/build-windows.sh ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-cross-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/cryptnet-dump.exe
+          if-no-files-found: error
+
+  build:
+    name: Validate and package Windows (${{ matrix.target }})
+    needs: cross-build
+    strategy:
+      matrix:
+        include:
+          - runner: windows-2022
+            target: x86_64-pc-windows-msvc
+          - runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+          rustup default stable
+          rustup target add ${{ matrix.target }}
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --locked --target ${{ matrix.target }} -- -D warnings
+      - run: cargo test --locked --target ${{ matrix.target }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-cross-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release
+      - name: Smoke-test the cross-built executable on Windows
+        shell: pwsh
+        run: |
+          $exe = Resolve-Path target/${{ matrix.target }}/release/cryptnet-dump.exe
+          & $exe --version
+          if ($LASTEXITCODE -ne 0) { throw 'Cross-built executable failed to start' }
+          $cache = Join-Path $env:RUNNER_TEMP cross-smoke-cache
+          New-Item -ItemType Directory "$cache/MetaData" -Force | Out-Null
+          $url = 'ldap://example.test/certificate'
+          $encoded = [Text.Encoding]::Unicode.GetBytes("$url`0")
+          $metadata = [byte[]]::new(116 + $encoded.Length)
+          [BitConverter]::GetBytes([uint32]$encoded.Length).CopyTo($metadata, 12)
+          $encoded.CopyTo($metadata, 116)
+          [IO.File]::WriteAllBytes("$cache/MetaData/synthetic", $metadata)
+          $output = & $exe --path $cache --json
+          if ($LASTEXITCODE -ne 0) { throw 'Cross-built executable failed to parse metadata' }
+          $rows = @($output | ForEach-Object { $_ | ConvertFrom-Json })
+          # Newer PowerShell versions deserialize ISO timestamps as DateTime, not strings.
+          if ($rows.Count -ne 1 -or $rows[0].url -ne $url -or
+              ([DateTimeOffset]$rows[0].last_download_time) -ne [DateTimeOffset]'1601-01-01T00:00:00Z') {
+            throw 'Cross-built executable returned incorrect evidence'
+          }
+      - name: Package executable and checksum
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory package
+          New-Item -ItemType Directory dist
+          Copy-Item target/${{ matrix.target }}/release/cryptnet-dump.exe package/
+          Copy-Item README.md,LICENSE package/
+          Copy-Item docs package/ -Recurse
+          $hash = (Get-FileHash package/cryptnet-dump.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  cryptnet-dump.exe" | Set-Content package/SHA256SUMS -Encoding ascii
+          $name = 'cryptnet-dump-${{ matrix.target }}.zip'
+          Compress-Archive -Path package/* -DestinationPath "dist/$name"
+          $zipHash = (Get-FileHash "dist/$name" -Algorithm SHA256).Hash.ToLower()
+          "$zipHash  $name" | Set-Content "dist/$name.sha256" -Encoding ascii
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cryptnet-dump-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: cryptnet-dump-*
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: cryptnet-dump ${{ github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/*.zip
+            dist/*.sha256
+          body: |
+            Standalone, read-only Windows certificate-cache investigation tool. No Python or runtime installation required.
+
+            Download and extract the ZIP for **x64** (`x86_64-pc-windows-msvc`, most Windows PCs) or **ARM64** (`aarch64-pc-windows-msvc`, Windows on ARM). Targets Windows 10/11 and Server 2016+; no 32-bit builds.
+
+            Start with `.\cryptnet-dump.exe`. Add `--ocsp-only --resolve` for candidate names, or `--json --output evidence.jsonl` for full evidence. Resolution sends serials to ctlogs.dev, with crt.sh as fallback. Names are unverified leads, not proof of connections.
+
+            Each ZIP contains the executable, documentation, and an executable SHA-256 checksum. Adjacent `.sha256` files verify the ZIP downloads. More cowbell included.
+
+  publish-crate:
+    name: Publish crate to crates.io
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+      - name: Check release tag matches crate version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')
+          if [[ "$RELEASE_TAG" != "v$version" ]]; then
+            echo "::error::Tag $RELEASE_TAG must match Cargo.toml version: v$version"
+            exit 1
+          fi
+      - name: Publish crate
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if [[ -z "$CARGO_REGISTRY_TOKEN" ]]; then
+            echo '::error::Add CARGO_REGISTRY_TOKEN as a GitHub Actions repository secret.'
+            exit 1
+          fi
+          cargo publish --locked
