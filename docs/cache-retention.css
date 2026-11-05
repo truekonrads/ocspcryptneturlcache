@@ -1,0 +1,62 @@
+.retention-layout { grid-template-columns: 205px minmax(0, 820px); }
+.scenario-tabs { display: flex; flex-wrap: wrap; gap: .55rem; margin: 1.4rem 0 1rem; }
+.scenario-tabs button {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink);
+  padding: .5rem .7rem;
+  font: 600 .78rem/1.25 "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  cursor: pointer;
+}
+.scenario-tabs button:hover { border-color: var(--link); color: var(--link); }
+.scenario-tabs button[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: white; }
+.workbench { border: 1px solid var(--line); border-radius: 4px; overflow: hidden; margin-top: 1rem; }
+.controls { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; background: var(--wash); border-bottom: 1px solid var(--line); padding: 1.2rem; }
+.field { min-width: 0; }
+.field label { display: block; font-size: .78rem; font-weight: 700; margin-bottom: .3rem; }
+.field input, .field select { width: 100%; min-height: 2.5rem; border: 1px solid #9babb4; border-radius: 3px; background: var(--paper); color: var(--ink); padding: .45rem .55rem; font: inherit; }
+.hint { display: block; color: var(--muted); font-size: .7rem; line-height: 1.35; margin-top: .25rem; }
+.result { padding: 1.4rem; }
+.result-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
+.result-head h3, .finding h3 { margin: 0 0 .45rem; }
+.result-head p, .finding p { margin: 0; }
+.status-badge { flex: 0 0 auto; border: 1px solid var(--brass); border-radius: 3px; color: var(--ink); padding: .3rem .5rem; font-size: .7rem; font-weight: 700; }
+.readout { display: grid; grid-template-columns: repeat(3, 1fr); margin: 1.5rem 0; border-block: 1px solid var(--line); }
+.readout div { padding: .8rem; border-right: 1px solid var(--line); }
+.readout div:first-child { padding-left: 0; }
+.readout div:last-child { border-right: 0; }
+.readout dt { margin: 0 0 .15rem; color: var(--muted); font-size: .72rem; font-weight: 400; }
+.readout dd { margin: 0; color: var(--ink); font-size: 1.25rem; font-weight: 700; }
+.timeline-wrap { margin: 1.2rem 0 1.6rem; }
+.timeline-title { display: flex; justify-content: space-between; color: var(--muted); font-size: .72rem; margin-bottom: .45rem; }
+.timeline { position: relative; height: 136px; border-inline: 1px solid var(--line); background-image: linear-gradient(to right, transparent calc(25% - 1px), var(--line) 25%, transparent calc(25% + 1px)), linear-gradient(to right, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)), linear-gradient(to right, transparent calc(75% - 1px), var(--line) 75%, transparent calc(75% + 1px)); }
+.bar { position: absolute; left: 0; height: 25px; min-width: 2px; }
+.bar span { position: absolute; left: .35rem; top: .2rem; white-space: nowrap; background: rgba(255,255,255,.9); color: var(--ink); padding: 0 .2rem; font-size: .66rem; font-weight: 700; }
+.valid-bar { top: 12px; background: var(--link); }
+.retained-bar { top: 48px; background: var(--brass); }
+.eligible-bar { top: 84px; height: 18px; background: repeating-linear-gradient(135deg, var(--line) 0 7px, var(--wash) 7px 14px); }
+.age-marker { position: absolute; inset-block: 0; width: 2px; background: var(--ink); z-index: 2; }
+.age-marker::after { content: "evidence age"; position: absolute; left: .4rem; bottom: 4px; white-space: nowrap; color: var(--ink); font-size: .65rem; font-weight: 700; }
+.axis { display: flex; justify-content: space-between; color: var(--muted); font-size: .66rem; margin-top: .35rem; }
+.finding { background: var(--wash); border-left: 4px solid var(--brass); padding: 1rem 1.1rem; margin: 0 0 1rem; }
+#examples table { min-width: 720px; }
+#examples tbody th { min-width: 190px; }
+#examples td:nth-child(2) { white-space: nowrap; }
+@media (prefers-reduced-motion: no-preference) { .bar, .age-marker { transition: width .2s ease, left .2s ease; } }
+@media (max-width: 700px) {
+  .controls { grid-template-columns: repeat(2, 1fr); }
+  .result-head { display: block; }
+  .status-badge { display: inline-block; margin-top: .8rem; }
+}
+@media (max-width: 520px) {
+  .controls { grid-template-columns: 1fr; }
+  .readout { grid-template-columns: 1fr; }
+  .readout div, .readout div:first-child { padding: .65rem 0; border-right: 0; border-bottom: 1px solid var(--line); }
+  .readout div:last-child { border-bottom: 0; }
+}
+@media print {
+  .scenario-tabs, .controls { display: none; }
+  .workbench { border: 0; }
+  .result { padding: 0; }
+}

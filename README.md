@@ -180,5 +180,9 @@ URLs and response bodies, and optionally searches Certificate Transparency data
 for certificate names. Cache timestamps describe validation activity, not
 connection times; lookup names are candidates, not issuer-verified matches.
 Read [how it works](docs/how-it-works.md) for the technical details, limitations,
-and investigation workflow. The original Python proof of concept is archived in
+and investigation workflow. For cache lifetime specifically, see the
+[rendered reverse-engineering analysis](https://truekonrads.github.io/ocspcryptneturlcache/cache-retention-analysis.html),
+its [Markdown source](docs/cache-retention.md), and the
+[interactive retention scenarios](https://truekonrads.github.io/ocspcryptneturlcache/cache-retention.html).
+The original Python proof of concept is archived in
 [`old/`](https://github.com/truekonrads/ocspcryptneturlcache/tree/main/old).

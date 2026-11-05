@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Reverse-engineering analysis of Windows OCSP CryptnetUrlCache validity, prefetch, and deletion behavior.">
+  <title>Windows OCSP cache retention analysis — cryptnet-dump</title>
+  <link rel="stylesheet" href="site.css">
+</head>
+<body>
+  <a class="skip" href="#finding">Skip to content</a>
+  <header class="masthead">
+    <a href="index.html" aria-label="cryptnet-dump home">cryptnet-dump</a>
+    <a href="https://github.com/truekonrads/ocspcryptneturlcache">Source on GitHub</a>
+  </header>
+  <main class="reading-layout">
+    <nav class="contents" aria-label="On this page">
+      <span>On this page</span>
+      <a href="#finding">Finding</a>
+      <a href="#scope">Scope</a>
+      <a href="#validity">Response validity</a>
+      <a href="#fields">On-disk fields</a>
+      <a href="#eviction">Normal eviction</a>
+      <a href="#prefetch">Active prefetch</a>
+      <a href="#windows">Forensic windows</a>
+      <a href="#examples">Live examples</a>
+      <a href="#interpretation">Interpretation</a>
+      <a href="#sources">Sources</a>
+    </nav>
+    <article>
+      <section id="finding">
+        <h1>Windows OCSP cache retention</h1>
+        <p class="lead">An OCSP entry in Windows <code>CryptnetUrlCache</code> does not have one fixed lifetime. Protocol validity and physical file retention are controlled by different clocks.</p>
+        <ol>
+          <li><strong>Validation lifetime:</strong> how long the response can satisfy a revocation check.</li>
+          <li><strong>Physical retention:</strong> how long its <code>MetaData</code> and <code>Content</code> files can remain recoverable.</li>
+        </ol>
+        <pre><code>if the response contains nextUpdate:
+    valid_until = min(nextUpdate, certificate.NotAfter)
+else:
+    valid_until = min(thisUpdate + OcspValiditySeconds, certificate.NotAfter)
+
+flush_base     = max(ExpireTime, LastSyncTime)
+flush_eligible = flush_base + flush_exemption</code></pre>
+        <p>The default <code>OcspValiditySeconds</code> is <strong>43,200 seconds (12 hours)</strong>. A stored <code>dwExemptSeconds</code> of zero selects the service default, normally <strong>2,419,200 seconds (28 days)</strong>. <code>0xFFFFFFFF</code> disables automatic flushing for the entry.</p>
+        <aside aria-label="Central conclusion"><strong>Eligibility is not deletion.</strong> Reaching <code>flush_eligible</code> makes an entry eligible for removal during a later Cryptnet URL Cache Service scan. Expired files can remain recoverable beyond that time.</aside>
+        <div class="actions"><a class="button" href="cache-retention.html">Explore retention scenarios</a><a href="cache-retention.md">View the Markdown source</a></div>
+      </section>
+
+      <section id="scope">
+        <h2>Reverse-engineering scope</h2>
+        <p>The result was established from these installed Windows 11 binaries, imported into Ghidra 12.2 with matching Microsoft public symbols:</p>
+        <dl>
+          <dt><code>cryptnet.dll</code></dt>
+          <dd>Version <code>10.0.26100.9549</code><br>SHA-256 <code>E478DD3D872606A1B0CBB4B50BED941EA8ACA92B71DF4178CA7B164AAFB7428A</code></dd>
+          <dt><code>cryptsvc.dll</code></dt>
+          <dd>Version <code>10.0.26100.1</code><br>SHA-256 <code>078C8645A3F57BBF5ABA4E55C9989C400CC2E6B39B886F9B5A1AD7435B1D1500</code></dd>
+        </dl>
+        <p class="small">Addresses below apply only to these images. Other Windows releases may differ.</p>
+      </section>
+
+      <section id="validity">
+        <h2>Response validity</h2>
+        <p><code>cryptnet!OcspConvertResponseToCrl</code> at <code>0x180009EC0</code> converts an accepted OCSP response into the time-valid-object representation used by Windows. It uses the response's <code>nextUpdate</code> when present. If the field is absent, it adds the value returned by <code>I_GetOcspValiditySeconds</code> at <code>0x18001CC38</code> to <code>thisUpdate</code>. In both cases it caps the result at the subject certificate's <code>NotAfter</code> time.</p>
+        <p><code>I_GetOcspValiditySeconds</code> reads the <code>OcspValiditySeconds</code> DWORD under:</p>
+        <pre><code>HKLM\Software\Microsoft\Cryptography\OID\EncodingType 0\
+  CertDllCreateCertificateChainEngine\Config</code></pre>
+        <p>An absent or invalid value produces the 12-hour default. HTTP <code>Cache-Control: max-age</code>, parsed elsewhere by <code>cryptnet.dll</code>, is response and revalidation metadata; it does not replace OCSP protocol validity.</p>
+      </section>
+
+      <section id="fields">
+        <h2>On-disk fields that control retention</h2>
+        <p>The current 116-byte metadata prefix contains the following retention fields. This is an observed implementation layout, not a documented file-format ABI.</p>
+        <section class="table-wrap" tabindex="0" aria-label="Retention metadata fields">
+          <table class="offsets">
+            <thead><tr><th scope="col">Offset</th><th scope="col">Field</th><th scope="col">Use</th></tr></thead>
+            <tbody>
+              <tr><td><code>0x10</code></td><td><code>LastSyncTime</code></td><td>Last successful cache retrieval or update.</td></tr>
+              <tr><td><code>0x18</code></td><td>Prefetch structure size</td><td>Validates the prefetch block.</td></tr>
+              <tr><td><code>0x1C</code></td><td>Prefetch object type</td><td><code>3</code> denotes OCSP.</td></tr>
+              <tr><td><code>0x20</code></td><td>Prefetch error</td><td>Zero permits active-prefetch handling.</td></tr>
+              <tr><td><code>0x28</code></td><td>Prefetch <code>ThisUpdateTime</code></td><td>Status interval start.</td></tr>
+              <tr><td><code>0x30</code></td><td>Prefetch <code>NextUpdateTime</code></td><td>Status interval end and refresh input.</td></tr>
+              <tr><td><code>0x40</code></td><td>Flush structure size</td><td>Validates the flush block.</td></tr>
+              <tr><td><code>0x44</code></td><td><code>dwExemptSeconds</code></td><td>Post-base retention exemption.</td></tr>
+              <tr><td><code>0x48</code></td><td><code>ExpireTime</code></td><td>Expiry used by the normal flush calculation.</td></tr>
+            </tbody>
+          </table>
+        </section>
+        <p>The flush block corresponds to Microsoft's <a href="https://learn.microsoft.com/en-us/windows/win32/api/wincrypt/ns-wincrypt-cryptnet_url_cache_flush_info"><code>CRYPTNET_URL_CACHE_FLUSH_INFO</code></a>.</p>
+      </section>
+
+      <section id="eviction">
+        <h2>Normal eviction</h2>
+        <p>The deletion decision is made in <code>cryptsvc!EnumUrlCacheEntryCallback</code> at <code>0x1800020A0</code>. For a non-active-prefetch entry, the service:</p>
+        <ol>
+          <li>Uses the stored exemption, or the machine default when it is zero.</li>
+          <li>Leaves the entry alone when the exemption is <code>0xFFFFFFFF</code>.</li>
+          <li>Chooses the later of <code>ExpireTime</code> and <code>LastSyncTime</code>, with clock-rollback handling for a future synchronization time.</li>
+          <li>Adds the exemption and queues an eligible pair for deletion.</li>
+        </ol>
+        <p><code>cryptsvc!InitPreFetchPara</code> at <code>0x18000CD20</code> initializes the default exemption to <code>0x24EA00</code>, or 28 days. A nonzero <code>CryptnetDefaultFlushExemptSeconds</code> DWORD under the chain-engine <code>Config</code> key can override it.</p>
+        <p>Queued entries are deleted by <code>FlushUrlCacheEntries</code> at <code>0x180008E04</code> during a service scan. The paired content and metadata files are separate; explicit deletion removes content first, so interruption or collection timing can leave an orphaned half-pair.</p>
+      </section>
+
+      <section id="prefetch">
+        <h2>Active prefetch</h2>
+        <p>An entry with a valid prefetch block, nonzero object type, zero prefetch error, and nonzero <code>NextUpdateTime</code> follows a different branch. The service creates or updates a prefetch job instead of placing the entry on the normal flush list.</p>
+        <p>Successful background refresh can advance <code>LastSyncTime</code> and replace validity metadata without the original application—or malware—running again. The normal formula is therefore not an upper bound for an actively prefetched entry. If prefetch is unsupported, malformed, or records an error, the entry falls back to normal time-based flushing.</p>
+      </section>
+
+      <section id="windows">
+        <h2>Worked forensic windows</h2>
+        <p>Assume the initial retrieval occurred at <code>T0</code>, <code>thisUpdate</code> is close to retrieval time, and the default 28-day exemption applies:</p>
+        <section class="table-wrap" tabindex="0" aria-label="Worked retention windows">
+          <table>
+            <thead><tr><th scope="col">Scenario</th><th scope="col">Validation expiry</th><th scope="col">Normal deletion eligibility</th></tr></thead>
+            <tbody>
+              <tr><td><code>nextUpdate = T0 + 7 days</code></td><td>About day 7</td><td>About day 35</td></tr>
+              <tr><td>No <code>nextUpdate</code></td><td>About 12 hours after <code>thisUpdate</code></td><td>About day 28.5</td></tr>
+              <tr><td><code>nextUpdate = T0 + 60 days</code></td><td>About day 60</td><td>About day 88</td></tr>
+              <tr><td>Active prefetch</td><td>Refresh advances it</td><td>No fixed upper bound</td></tr>
+              <tr><td>Flush disabled (<code>0xFFFFFFFF</code>)</td><td>Response expires</td><td>No automatic flush</td></tr>
+            </tbody>
+          </table>
+        </section>
+        <p class="small">Use the actual FILETIME and OCSP values when analysing a real entry.</p>
+      </section>
+
+      <section id="examples">
+        <h2>Live cache examples</h2>
+        <p>A read-only scan on 2026-11-05 found 60 OCSP-bearing entries in the current user's cache. It used <code>cryptnet-dump.exe --ocsp-only --json</code> without <code>--resolve</code>; no certificate serials or URLs were sent to an external service. Times below are UTC.</p>
+
+        <h3>Thirty-day-old normal entry</h3>
+        <dl>
+          <dt>Responder</dt><dd><code>oneocsp.microsoft.com</code></dd>
+          <dt>Cache key</dt><dd><code>BBD4B1348E8664F092F68378AEE49761_FEB2D449327D68824E2066BF592EFC1B</code></dd>
+          <dt>LastSyncTime</dt><dd>2026-10-06 10:20:37</dd>
+          <dt>ExpireTime / NextUpdateTime</dt><dd>2026-10-12 20:20:20</dd>
+          <dt>Flush path</dt><dd>Stored exemption zero; prefetch error 50 (<code>ERROR_NOT_SUPPORTED</code>)</dd>
+          <dt>Normal eligibility</dt><dd>2026-11-09 20:20:20</dd>
+        </dl>
+        <p>The roughly 30-day-old files were still present because the post-expiry exemption had not elapsed.</p>
+
+        <h3>Recent normal entry</h3>
+        <dl>
+          <dt>Responder</dt><dd><code>ocsp.digicert.com</code></dd>
+          <dt>Cache key</dt><dd><code>8EC9B1D0ABBD7F98B401D425828828CE_0B1450752E8709914F773207984E4A63</code></dd>
+          <dt>LastSyncTime</dt><dd>2026-11-04 23:56:35</dd>
+          <dt>ExpireTime / NextUpdateTime</dt><dd>2026-11-11 20:21:00</dd>
+          <dt>Flush path</dt><dd>Prefetch error 50; normal flushing</dd>
+          <dt>Normal eligibility</dt><dd>2026-12-09 20:21:00</dd>
+        </dl>
+        <p><code>ExpireTime</code> exactly matched the OCSP response's <code>nextUpdate</code>; the default exemption then added 28 days.</p>
+
+        <h3>Long-lived active-prefetch candidate</h3>
+        <dl>
+          <dt>Responder</dt><dd><code>ocsps.ssl.com</code></dd>
+          <dt>Cache key</dt><dd><code>161832C90068D02CF65B25D285AB768A_3E5CCA2E9839DA0DDB183F1D9E86F21F</code></dd>
+          <dt>LastSyncTime</dt><dd>2026-11-05 00:13:27</dd>
+          <dt>ExpireTime / NextUpdateTime</dt><dd>2027-06-07 17:45:56</dd>
+          <dt>Prefetch status</dt><dd>Error zero; active-prefetch conditions satisfied</dd>
+          <dt>Normal-formula date if inactive</dt><dd>2027-07-05 17:45:56</dd>
+        </dl>
+        <p>This entry demonstrates both a long responder validity interval and the active-prefetch branch. The normal-formula date is not an upper bound while prefetch remains active.</p>
+      </section>
+
+      <section id="interpretation">
+        <h2>Forensic interpretation</h2>
+        <p>Presence establishes that certificate-related material was cached for that profile. It does <strong>not</strong> identify the initiating process, prove the inferred site was contacted, show that TLS succeeded, or establish that malware ran at <code>LastSyncTime</code>. OCSP retrieval may relate to a TLS certificate, intermediate CA, Authenticode signer, timestamp chain, or another validation operation.</p>
+        <p>Absence is also weak evidence. The entry may never have been created, may belong to another profile, may have been cleared manually, may have used stapled OCSP or another TLS stack, or may already have been scanned and deleted. Treat <code>flush_eligible</code> as a lower bound on automatic deletion, never as a guaranteed deletion timestamp.</p>
+      </section>
+
+      <section id="sources">
+        <h2>Sources</h2>
+        <ul class="sources">
+          <li><a href="https://learn.microsoft.com/en-us/windows/win32/seccrypto/certificate-revocation-list-semantics">Microsoft: certificate revocation semantics</a></li>
+          <li><a href="https://learn.microsoft.com/en-us/windows/win32/api/wincrypt/nf-wincrypt-cryptretrieveobjectbyurlw">Microsoft: <code>CryptRetrieveObjectByUrlW</code></a></li>
+          <li><a href="https://learn.microsoft.com/en-us/windows/win32/api/wincrypt/ns-wincrypt-cryptnet_url_cache_flush_info">Microsoft: <code>CRYPTNET_URL_CACHE_FLUSH_INFO</code></a></li>
+          <li><a href="https://learn.microsoft.com/en-us/windows/win32/api/wincrypt/ns-wincrypt-cryptnet_url_cache_response_info">Microsoft: <code>CRYPTNET_URL_CACHE_RESPONSE_INFO</code></a></li>
+          <li><a href="https://www.rfc-editor.org/rfc/rfc6960">RFC 6960: Online Certificate Status Protocol</a></li>
+        </ul>
+        <div class="actions"><a class="button" href="cache-retention.html">Open the scenario explorer</a><a href="cache-retention.md">View the Markdown source</a></div>
+      </section>
+      <footer>Static HTML rendering of <a href="cache-retention.md"><code>cache-retention.md</code></a>. Analysis applies to the binary versions identified above.</footer>
+    </article>
+  </main>
+</body>
+</html>
+

@@ -23,6 +23,7 @@
         <a href="#callers">WinINet, WinHTTP &amp; code</a>
         <a href="#browsers">Edge &amp; Chrome</a>
         <a href="#cache">How the cache works</a>
+        <a href="#retention">How long entries remain</a>
         <a href="#format">On-disk format</a>
         <a href="#ocsp">From OCSP to names</a>
         <a href="#limits">Interpretation &amp; edge cases</a>
@@ -111,6 +112,14 @@
             <li><code>%SystemRoot%\ServiceProfiles\NetworkService</code></li>
           </ul>
           <p>The relevant cache belongs to the retrieval identity. A service’s activity need not appear in the interactive user’s profile. <code>--all-users</code> discovers common locations, not every possible relocated profile; use repeated <code>--path</code> arguments for acquired or unusual locations.</p>
+        </section>
+
+        <section id="retention">
+          <h2>How long does an OCSP entry remain?</h2>
+          <p><strong>Expiry is not deletion.</strong> Windows normally keeps a non-prefetched OCSP entry until the later of its protocol expiry and last synchronization time, then adds a 28-day flush exemption. The entry becomes eligible for deletion during a later service scan; it does not disappear at that exact instant.</p>
+          <p>A seven-day OCSP response therefore has an ordinary physical window of about <strong>35 days from retrieval</strong>, plus scan delay. When <code>nextUpdate</code> is absent, the default response-validity fallback is 12 hours, producing a window of about 28.5 days. Active prefetch, a long-lived response, disabled flushing, manual clearing, or profile cleanup can make the real window longer or shorter.</p>
+          <div class="actions"><a class="button" href="cache-retention.html">Explore retention scenarios</a><a href="cache-retention-analysis.html">Read the reverse-engineering analysis</a></div>
+          <aside aria-label="Forensic boundary"><strong>Forensic boundary.</strong> A retained entry records certificate-cache activity for a profile. It does not prove that a candidate hostname was contacted, identify the initiating process, or date malware execution.</aside>
         </section>
 
         <section id="format">

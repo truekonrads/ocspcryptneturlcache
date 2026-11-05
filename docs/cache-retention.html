@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Interactive forensic scenarios for Windows OCSP CryptnetUrlCache retention.">
+  <title>OCSP cache retention — cryptnet-dump</title>
+  <link rel="stylesheet" href="site.css">
+  <link rel="stylesheet" href="cache-retention.css">
+</head>
+<body>
+  <a class="skip" href="#summary">Skip to content</a>
+  <header class="masthead">
+    <a href="index.html" aria-label="cryptnet-dump home">cryptnet-dump</a>
+    <a href="https://github.com/truekonrads/ocspcryptneturlcache">Source on GitHub</a>
+  </header>
+  <main class="reading-layout retention-layout">
+    <nav class="contents" aria-label="On this page">
+      <span>On this page</span>
+      <a href="#summary">The two clocks</a>
+      <a href="#explorer">Scenario explorer</a>
+      <a href="#examples">Live cache examples</a>
+      <a href="#method">Calculation</a>
+      <a href="index.html">Forensic field guide</a>
+    </nav>
+    <article>
+      <section id="summary">
+        <h1>Expired is not deleted</h1>
+        <p class="lead">Windows normally retains an OCSP response beyond the time when it can satisfy a revocation check. The difference creates a useful—but conditional—forensic window.</p>
+        <p>A normal entry becomes eligible for deletion after the later of its response expiry and last synchronization time, plus a flush exemption that defaults to <strong>28 days</strong>. A later Cryptnet service scan performs the deletion.</p>
+        <aside aria-label="Important distinction"><strong>Two different clocks.</strong> Protocol expiry answers whether Windows can reuse the response. Flush eligibility answers when the files may be removed. Neither timestamp proves when a website was visited or malware executed.</aside>
+      </section>
+
+      <section id="explorer">
+        <h2>Explore retention scenarios</h2>
+        <p>Day 0 is the initial cache retrieval. Choose a representative case or adjust the values to model an observed entry.</p>
+        <div class="scenario-tabs" role="group" aria-label="Example scenarios">
+          <button type="button" aria-pressed="true" data-scenario="seven">7-day response</button>
+          <button type="button" aria-pressed="false" data-scenario="missing">No nextUpdate</button>
+          <button type="button" aria-pressed="false" data-scenario="long">Long-lived</button>
+          <button type="button" aria-pressed="false" data-scenario="prefetch">Active prefetch</button>
+          <button type="button" aria-pressed="false" data-scenario="sticky">Flush disabled</button>
+        </div>
+
+        <section class="workbench" aria-label="OCSP cache retention calculator">
+          <div class="controls" id="retention-form">
+            <div class="field">
+              <label for="age">Evidence age, days</label>
+              <input id="age" name="age" type="number" min="0" max="3650" step="0.5" value="30">
+            </div>
+            <div class="field">
+              <label for="validity">Response expiry, day</label>
+              <input id="validity" name="validity" type="number" min="0" max="3650" step="0.5" value="7">
+              <span class="hint">Use 0.5 for the default 12-hour fallback.</span>
+            </div>
+            <div class="field">
+              <label for="cert">Certificate expiry, day</label>
+              <input id="cert" name="cert" type="number" min="0" max="3650" step="0.5" value="90">
+              <span class="hint"><code>NotAfter</code> caps OCSP validity.</span>
+            </div>
+            <div class="field">
+              <label for="sync">LastSyncTime, day</label>
+              <input id="sync" name="sync" type="number" min="0" max="3650" step="0.5" value="0">
+              <span class="hint">Background refresh can advance it.</span>
+            </div>
+            <div class="field">
+              <label for="exemption">Flush exemption, days</label>
+              <input id="exemption" name="exemption" type="number" min="0" max="3650" step="0.5" value="28">
+            </div>
+            <div class="field">
+              <label for="mode">Service handling</label>
+              <select id="mode" name="mode">
+                <option value="normal">Normal scan</option>
+                <option value="prefetch">Active prefetch</option>
+                <option value="disabled">Automatic flush disabled</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="result" aria-live="polite">
+            <div class="result-head">
+              <div>
+                <h3 id="scenario-title">A 30-day-old entry can remain</h3>
+                <p id="scenario-summary">The response is no longer usable, but it has not reached normal deletion eligibility.</p>
+              </div>
+              <span class="status-badge" id="status-stamp">Recoverable window</span>
+            </div>
+            <dl class="readout">
+              <div><dt>Valid until</dt><dd id="valid-readout">day 7</dd></div>
+              <div><dt>Eligible from</dt><dd id="eligible-readout">day 35</dd></div>
+              <div><dt>Evidence age</dt><dd id="age-readout">day 30</dd></div>
+            </dl>
+            <div class="timeline-wrap">
+              <div class="timeline-title"><span>Retrieval</span><span id="scale-caption">0–35 days</span></div>
+              <div class="timeline" role="img" aria-label="Calculated cache timeline showing validation, protected retention, deletion eligibility, and evidence age">
+                <div class="bar valid-bar" id="valid-bar"><span>valid for checking</span></div>
+                <div class="bar retained-bar" id="retained-bar"><span>protected from normal flush</span></div>
+                <div class="bar eligible-bar" id="eligible-bar"><span>scan may delete</span></div>
+                <div class="age-marker" id="age-marker"></div>
+              </div>
+              <div class="axis"><span>day 0</span><span id="quarter-axis"></span><span id="half-axis"></span><span id="three-quarter-axis"></span><span id="end-axis"></span></div>
+            </div>
+            <div class="finding">
+              <h3 id="finding-title">Interpret presence cautiously</h3>
+              <p id="finding-text">At day 30, an entry with a seven-day response interval is expected to remain under the ordinary time calculation. It does not identify the process or prove a connection to a candidate hostname.</p>
+            </div>
+            <p class="small">Eligibility is not deletion. Manual clearing, profile cleanup, no-cache flags, or collection from the wrong identity can shorten or eliminate the observable window.</p>
+          </div>
+        </section>
+      </section>
+
+      <section id="examples">
+        <h2>Examples from this computer</h2>
+        <p>A read-only scan on <strong>2026-11-05</strong> found 60 OCSP-bearing entries in the current user's cache. The times below are UTC. Certificate serials are intentionally omitted.</p>
+        <section class="table-wrap" tabindex="0" aria-label="Live cache retention examples">
+          <table>
+            <thead><tr><th scope="col">Responder and branch</th><th scope="col">Observed times</th><th scope="col">Forensic reading</th></tr></thead>
+            <tbody>
+              <tr>
+                <th scope="row"><code>oneocsp.microsoft.com</code><br><span class="small">Normal flush; prefetch error 50</span></th>
+                <td><strong>LastSync:</strong> 2026-10-06 10:20:37<br><strong>Expire:</strong> 2026-10-12 20:20:20<br><strong>Eligible:</strong> 2026-11-09 20:20:20</td>
+                <td>The files were still present at about 30 days old because the 28-day post-expiry exemption had not elapsed.</td>
+              </tr>
+              <tr>
+                <th scope="row"><code>ocsp.digicert.com</code><br><span class="small">Normal flush; prefetch error 50</span></th>
+                <td><strong>LastSync:</strong> 2026-11-04 23:56:35<br><strong>Expire:</strong> 2026-11-11 20:21:00<br><strong>Eligible:</strong> 2026-12-09 20:21:00</td>
+                <td><code>ExpireTime</code> exactly matched the response's <code>nextUpdate</code>; the default exemption then added 28 days.</td>
+              </tr>
+              <tr>
+                <th scope="row"><code>ocsps.ssl.com</code><br><span class="small">Active-prefetch candidate; error 0</span></th>
+                <td><strong>LastSync:</strong> 2026-11-05 00:13:27<br><strong>Expire:</strong> 2027-06-07 17:45:56<br><strong>Normal formula:</strong> 2027-07-05 17:45:56</td>
+                <td>The response had a long validity interval and met the active-prefetch conditions. The displayed normal date is not an upper bound while prefetch remains active.</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+        <p class="small">The scan used <code>cryptnet-dump.exe --ocsp-only --json</code> without <code>--resolve</code>. Retention fields were read directly from the metadata; no serials or URLs were sent to an external service.</p>
+      </section>
+
+      <section id="method">
+        <h2>The calculation</h2>
+        <p>For the normal service branch, the later of expiry and last synchronization becomes the base for the exemption:</p>
+        <pre><code>valid_until  = min(nextUpdate, certificate.NotAfter)
+              or min(thisUpdate + 12h, certificate.NotAfter)
+
+flush_base  = max(ExpireTime, LastSyncTime)
+eligible_at = flush_base + exemption       # normally 28 days</code></pre>
+        <p>Active prefetch can refresh an entry and move <code>LastSyncTime</code> without the original process running. An exemption of <code>0xFFFFFFFF</code> disables automatic time-based flushing.</p>
+        <div class="actions"><a class="button" href="cache-retention-analysis.html">Read the reverse-engineering analysis</a><a href="cache-retention.md">Markdown source</a><a href="index.html">Return to the field guide</a></div>
+      </section>
+      <footer>Derived from Ghidra analysis of Windows 11 build 26100 components and read-only live-cache corroboration. Other Windows versions may differ.</footer>
+    </article>
+  </main>
+
+  <script>
+    const scenarios = {
+      seven: { age: 30, validity: 7, cert: 90, sync: 0, exemption: 28, mode: "normal" },
+      missing: { age: 30, validity: .5, cert: 90, sync: 0, exemption: 28, mode: "normal" },
+      long: { age: 45, validity: 60, cert: 120, sync: 0, exemption: 28, mode: "normal" },
+      prefetch: { age: 60, validity: 7, cert: 180, sync: 56, exemption: 28, mode: "prefetch" },
+      sticky: { age: 120, validity: 7, cert: 90, sync: 0, exemption: 28, mode: "disabled" }
+    };
+    const form = document.querySelector("#retention-form");
+    const inputs = Object.fromEntries([...form.querySelectorAll("[name]")].map(el => [el.name, el]));
+    const out = id => document.querySelector(`#${id}`);
+    const formatDay = value => Number.isInteger(value) ? `${value}` : value.toFixed(1).replace(".5", "½");
+    const readNumber = (name, fallback = 0) => Math.max(0, Number(inputs[name].value) || fallback);
+
+    function update() {
+      const age = readNumber("age");
+      const validityInput = readNumber("validity");
+      const cert = readNumber("cert");
+      const sync = readNumber("sync");
+      const exemption = readNumber("exemption");
+      const mode = inputs.mode.value;
+      const valid = Math.min(validityInput, cert);
+      const eligible = Math.max(valid, sync) + exemption;
+      const indefinite = mode !== "normal";
+      const scaleMax = Math.max(7, age, valid, indefinite ? age * 1.15 : eligible) * 1.08;
+      const pct = value => `${Math.min(100, value / scaleMax * 100)}%`;
+      const expired = age > valid;
+      const isEligible = age >= eligible;
+
+      out("valid-readout").textContent = `day ${formatDay(valid)}`;
+      out("eligible-readout").textContent = mode === "normal" ? `day ${formatDay(eligible)}` : "not bounded";
+      out("age-readout").textContent = `day ${formatDay(age)}`;
+      out("valid-bar").style.width = pct(valid);
+      out("retained-bar").style.width = mode === "normal" ? pct(eligible) : "100%";
+      out("eligible-bar").style.left = mode === "normal" ? pct(eligible) : "100%";
+      out("eligible-bar").style.width = mode === "normal" ? `calc(100% - ${pct(eligible)})` : "0";
+      out("age-marker").style.left = pct(age);
+      out("scale-caption").textContent = `0–${Math.ceil(scaleMax)} days`;
+      out("quarter-axis").textContent = Math.round(scaleMax * .25);
+      out("half-axis").textContent = Math.round(scaleMax * .5);
+      out("three-quarter-axis").textContent = Math.round(scaleMax * .75);
+      out("end-axis").textContent = Math.ceil(scaleMax);
+
+      if (mode === "prefetch") {
+        out("scenario-title").textContent = "Background refresh breaks the simple upper bound";
+        out("scenario-summary").textContent = "An active prefetch job can replace the response and advance LastSyncTime without the original process running again.";
+        out("status-stamp").textContent = "Refreshable";
+        out("finding-title").textContent = "A recent timestamp may be service activity";
+        out("finding-text").textContent = `At day ${formatDay(age)}, continued presence can result from Cryptnet service refresh. Do not treat a newer LastSyncTime at day ${formatDay(sync)} as evidence that the initiating application executed again.`;
+      } else if (mode === "disabled") {
+        out("scenario-title").textContent = "Automatic flushing is disabled";
+        out("scenario-summary").textContent = "The response still expires for validation, but the service does not apply its normal time-based deletion branch.";
+        out("status-stamp").textContent = "No auto-flush";
+        out("finding-title").textContent = "Retention has no ordinary time limit";
+        out("finding-text").textContent = `At day ${formatDay(age)}, the expired files can remain until an explicit deletion, profile cleanup, or another mechanism removes them.`;
+      } else if (!expired) {
+        out("scenario-title").textContent = "The response is still time-valid";
+        out("scenario-summary").textContent = "The cache can reuse this response for revocation checking, subject to policy and response acceptance.";
+        out("status-stamp").textContent = "Time-valid";
+        out("finding-title").textContent = "Presence is expected, but not guaranteed";
+        out("finding-text").textContent = `At day ${formatDay(age)}, protocol validity continues until day ${formatDay(valid)}. Manual clearing or a no-cache retrieval can still leave no recoverable entry.`;
+      } else if (!isEligible) {
+        out("scenario-title").textContent = `A ${formatDay(age)}-day-old entry can remain`;
+        out("scenario-summary").textContent = "The response is no longer usable, but it has not reached normal deletion eligibility.";
+        out("status-stamp").textContent = "Recoverable window";
+        out("finding-title").textContent = "Interpret presence cautiously";
+        out("finding-text").textContent = `At day ${formatDay(age)}, this entry is inside the ordinary post-expiry retention window. Normal deletion eligibility begins at day ${formatDay(eligible)}, but presence does not identify a process or prove contact with a candidate hostname.`;
+      } else {
+        out("scenario-title").textContent = "The entry is eligible for deletion";
+        out("scenario-summary").textContent = "A Cryptnet service scan may already have removed it, but eligibility is not an exact deletion time.";
+        out("status-stamp").textContent = "Scan-dependent";
+        out("finding-title").textContent = "Both presence and absence are plausible";
+        out("finding-text").textContent = `Eligibility began at day ${formatDay(eligible)}. Finding the files at day ${formatDay(age)} can indicate scan delay; not finding them cannot establish that the original activity did not occur.`;
+      }
+    }
+
+    document.querySelectorAll("[data-scenario]").forEach(button => {
+      button.addEventListener("click", () => {
+        const values = scenarios[button.dataset.scenario];
+        Object.entries(values).forEach(([name, value]) => { inputs[name].value = value; });
+        document.querySelectorAll("[data-scenario]").forEach(item => item.setAttribute("aria-pressed", String(item === button)));
+        update();
+      });
+    });
+    form.addEventListener("input", () => {
+      document.querySelectorAll("[data-scenario]").forEach(item => item.setAttribute("aria-pressed", "false"));
+      update();
+    });
+    update();
+  </script>
+</body>
+</html>
