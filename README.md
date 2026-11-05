@@ -130,6 +130,27 @@ cache is read or created. Save `resolved.jsonl` and reopen it with
 
 ## Get the executable
 
+Available as a [Rust crate on crates.io](https://crates.io/crates/cryptnet-dump)
+as well as prebuilt release archives.
+
+### Install with Cargo
+
+With stable Rust and a native build toolchain installed, run:
+
+```sh
+cargo install cryptnet-dump --locked
+cryptnet-dump --help
+```
+
+This installs the `cryptnet-dump` command into Cargo's binary directory
+(`~/.cargo/bin`, or `%USERPROFILE%\.cargo\bin` on Windows); ensure it is on
+your `PATH`. This is a **CLI crate**, not a Rust library dependency.
+Windows builds require the MSVC toolchain and Visual Studio C++ Build Tools;
+Linux builds require a native C compiler/linker. Use a prebuilt archive below
+if you do not want to install Rust or build tools.
+
+### Download a prebuilt executable
+
 Windows target: **64-bit Windows 10/11 and Server 2016+**; live-tested on Windows 11 x64.
 No Python, OpenSSL DLLs, or VC++ runtime installation is needed on the target.
 
@@ -156,6 +177,8 @@ sha256sum --check SHA256SUMS
 ./cryptnet-dump --path /evidence/CryptnetUrlCache --json
 ./cryptnet-dump --input /evidence/evidence.jsonl --resolve
 ```
+
+### Build from source
 
 Build with stable Rust (MSVC) and Visual Studio C++ Build Tools:
 

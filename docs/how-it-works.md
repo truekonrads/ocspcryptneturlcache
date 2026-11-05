@@ -201,6 +201,27 @@ required, and no key is bundled with the executable.
 
 ## Compatibility, builds, and tests
 
+### Install from crates.io
+
+`cryptnet-dump` is available as a [Rust crate on crates.io](https://crates.io/crates/cryptnet-dump).
+Install the CLI with stable Rust and a native build toolchain:
+
+```sh
+cargo install cryptnet-dump --locked
+cryptnet-dump --help
+```
+
+Cargo installs the executable into its binary directory (`~/.cargo/bin`, or
+`%USERPROFILE%\.cargo\bin` on Windows), which must be on your `PATH`.
+The package is a CLI crate, not a library for use with `cargo add`.
+On Windows, use Rust MSVC and Visual Studio C++ Build Tools; on Linux, use a
+native C compiler/linker. For installation without Rust or build tools, use the
+[prebuilt release archives](../README.md#get-the-executable).
+Linux can examine collected caches and exported JSON Lines; live Windows profile
+discovery and `--all-users` require Windows regardless of installation method.
+
+### Windows compatibility and source builds
+
 Deployment baseline: **64-bit Windows 10/11 and Windows Server 2016 or newer**.
 The x86-64 MSVC build uses a statically linked C runtime and baseline CPU target;
 there is no 32-bit build or Windows 7/8 support claim. ARM64 uses the same static

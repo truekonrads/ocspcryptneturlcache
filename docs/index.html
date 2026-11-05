@@ -44,6 +44,11 @@
           <p>A standalone Rust executable reads live or collected cache files directly, without changing the source evidence. It extracts cached URLs, timestamps, content sizes and ETags, then decodes OCSP certificate IDs from request URLs and response bodies. It is <strong>offline by default</strong>; no Python or runtime installation is required on the target.</p>
           <p>With <code>--resolve</code>, it searches <a href="https://ctlogs.dev/">ctlogs.dev</a>, falling back to <a href="https://crt.sh/">crt.sh</a>, for candidate certificate common names and DNS Subject Alternative Names (SANs). Lookups are serial-only, not issuer-verified. Non-empty results are cached locally across runs without expiry.</p>
           <div class="actions"><a class="button" href="https://github.com/truekonrads/ocspcryptneturlcache/releases/latest">Download for Windows</a><a href="https://github.com/truekonrads/ocspcryptneturlcache#usage">Full usage &amp; options</a></div>
+          <h3>Install from crates.io</h3>
+          <p>Also available as the <a href="https://crates.io/crates/cryptnet-dump"><code>cryptnet-dump</code> Rust crate</a>. With stable Rust and a native build toolchain installed, run:</p>
+          <pre><code>cargo install cryptnet-dump --locked
+cryptnet-dump --help</code></pre>
+          <p>Cargo installs the <code>cryptnet-dump</code> command; this is a CLI crate, not a Rust library. Ensure Cargo’s binary directory is on your <code>PATH</code>. Windows builds need Rust MSVC and Visual Studio C++ Build Tools; Linux builds need a native C compiler/linker. Prebuilt release archives do not require Rust or build tools on the target.</p>
           <h3>Collect first. Resolve separately.</h3>
           <p>On the target, collect without making CT requests:</p>
           <pre><code>.\cryptnet-dump.exe --json --output evidence.jsonl</code></pre>
